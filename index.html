@@ -1,0 +1,23 @@
+<html ng-app>
+ <title>Generador de series de 12 tonos</title>
+ <head>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8">
+  <script src="http://ajax.googleapis.com/ajax/libs/angularjs/1.2.18/angular.min.js"></script>
+  <link rel="stylesheet" href="../s.css" type="text/css" media="screen" charset="utf-8">
+  <link rel="stylesheet" href="style.css" type="text/css" media="screen" charset="utf-8">
+  <script src="12tone.js"> </script>
+ </head>
+ <body style="font-size: 1.2em;">
+ <h1> Generador de series dodecafónicas </h1>
+  <div class="content" ng-controller="_12toneController">
+   <h2 id="heading">Matriz</h2>
+   <p class="matriz">
+   <pre><strong title="Las filas son transposiciones y las columnas son inversas.
+   Las retrogradas se encuentran solo leyendo alreves." >{{serie.matrixString()}}</strong></pre></p>
+   <h2>Serie principal</h2>
+   <input ng-repeat="i in [0,1,2,3,4,5,6,7,8,9,10,11]" class="note" ng-change='updateMatrix(i)' ng-model='s[i]'>
+   <button class="program" ng-click="random()"> random  </button><br>
+    <input type="checkbox" ng-model="use_flats" ng-change="changeNotation()" checked> Usar bemoles
+  </div>
+ </body>
+</html>

@@ -6,6 +6,7 @@ I was reading a about [serial music, 12 tone technique](https://es.wikipedia.org
 and [Arnold Schoenberg](https://es.wikipedia.org/wiki/Arnold_Sch%C3%B6nberg) and decided
 to make a 12 tone row calculator.
 
+Refactored, added sounds and styles using [Google's Antigravity](https://antigravity.google/download/linux)
 ## ScreenShots
 
 ![12tone](./resources/12tone.png)

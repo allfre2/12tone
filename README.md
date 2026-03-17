@@ -7,6 +7,9 @@ and [Arnold Schoenberg](https://es.wikipedia.org/wiki/Arnold_Sch%C3%B6nberg) and
 to make a 12 tone row calculator.
 
 Refactored, added sounds and styles using [Google's Antigravity](https://antigravity.google/download/linux)
+
+Use it live [here](https://allfre2.github.io/12tone/)
+
 ## ScreenShots
 
 ![12tone](./resources/12tone.png)

@@ -66,16 +66,38 @@ class series {
 // --- Web Audio API Synthesizer ---
 let audioCtx;
 
+// Active gain nodes and pending timeout IDs so we can cancel in-flight playback
+let activeGainNodes = [];
+let playbackTimeouts = [];
+
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
 }
 
+function stopAllAudio() {
+  // Cancel all pending per-note and sequence-end timeouts
+  playbackTimeouts.forEach(id => clearTimeout(id));
+  playbackTimeouts = [];
+
+  // Ramp each gain node to 0 quickly to avoid a hard click, then disconnect
+  const now = audioCtx ? audioCtx.currentTime : 0;
+  activeGainNodes.forEach(g => {
+    try {
+      g.gain.cancelScheduledValues(now);
+      g.gain.setValueAtTime(g.gain.value, now);
+      g.gain.linearRampToValueAtTime(0, now + 0.02);
+    } catch (e) { /* node may already be disconnected */ }
+  });
+  activeGainNodes = [];
+}
+
 function playTone(frequency, startTime) {
   const duration = 2.5; // longer ring for a piano sound
   const gainNode = audioCtx.createGain();
   gainNode.connect(audioCtx.destination);
+  activeGainNodes.push(gainNode); // register for cancellation
 
   // Piano-like envelope: immediate attack, quick initial decay, long sustain/release
   gainNode.gain.setValueAtTime(0, startTime);
@@ -118,7 +140,7 @@ function playTone(frequency, startTime) {
   osc3.stop(startTime + duration);
 }
 
-function playNoteArray(pitchClasses, callback) {
+function playNoteArray(pitchClasses, callback, perNoteCallback) {
   initAudio();
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
@@ -131,11 +153,19 @@ function playNoteArray(pitchClasses, callback) {
     // Treat note 0 as C4 (MIDI 60) for a standard piano register
     const frequency = 440 * Math.pow(2, (n + 60 - 69) / 12);
     playTone(frequency, startTime + index * noteDuration);
+
+    // Fire per-note callback at the scheduled time (tracked for cancellation)
+    if (perNoteCallback) {
+      const delay = (index * noteDuration + 0.1) * 1000;
+      playbackTimeouts.push(setTimeout(() => perNoteCallback(index), delay));
+    }
   });
 
-  // Execute callback after the sequence finishes
+  // Execute callback after the sequence finishes (tracked for cancellation)
   if (callback) {
-    setTimeout(callback, (pitchClasses.length * noteDuration + 0.1) * 1000);
+    playbackTimeouts.push(
+      setTimeout(callback, (pitchClasses.length * noteDuration + 0.1) * 1000)
+    );
   }
 }
 // ---------------------------------
@@ -151,6 +181,20 @@ function _12toneController($scope, $timeout) {
   $scope.playingCol = -1;
   $scope.playingRowRev = -1;
   $scope.playingColRev = -1;
+
+  // Track which individual cells are "lifted" (playing)
+  $scope.activeCells = {};
+
+  function setCellActive(key, active) {
+    $timeout(() => {
+      $scope.activeCells[key] = active;
+      if (!active) delete $scope.activeCells[key];
+    });
+  }
+
+  $scope.isCellActive = function(i, j) {
+    return !!$scope.activeCells[i + ',' + j];
+  };
 
   // Colors for each pitch class 0-11 in a light grayish-blue palette
   const pitchColors = [
@@ -187,6 +231,9 @@ function _12toneController($scope, $timeout) {
   };
 
   $scope.random = function () {
+    stopAllAudio();
+    resetPlayState();
+
     const newserie = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
     
     // Fisher-Yates shuffle algorithm
@@ -200,33 +247,86 @@ function _12toneController($scope, $timeout) {
   };
 
   // --- Audio Playback Functions ---
+
+  // Reset all playing-state indicators in the scope
+  function resetPlayState() {
+    $scope.playingRow = -1;
+    $scope.playingCol = -1;
+    $scope.playingRowRev = -1;
+    $scope.playingColRev = -1;
+    $scope.activeCells = {};
+  }
+
+  // Stop all sound and clear visual state
+  function stopAndReset() {
+    stopAllAudio();
+    $timeout(() => resetPlayState());
+  }
+
+  // Play a single cell's note on click
+  $scope.playCell = function(i, j) {
+    initAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const n = $scope.serie.Matrix[i][j];
+    const frequency = 440 * Math.pow(2, (n + 60 - 69) / 12);
+    const key = i + ',' + j;
+    setCellActive(key, true);
+    playTone(frequency, audioCtx.currentTime + 0.01);
+    // Lift duration matches the attack + early decay (~350ms feels right)
+    $timeout(() => setCellActive(key, false), 350);
+  };
+
   $scope.playRow = function(index) {
+    stopAndReset();
     $scope.playingRow = index;
-    playNoteArray($scope.serie.Matrix[index], () => {
+    const notes = $scope.serie.Matrix[index];
+    playNoteArray(notes, () => {
       $timeout(() => { $scope.playingRow = -1; });
+    }, (noteIndex) => {
+      const key = index + ',' + noteIndex;
+      setCellActive(key, true);
+      $timeout(() => setCellActive(key, false), 500);
     });
   };
 
   $scope.playRowReverse = function(index) {
+    stopAndReset();
     $scope.playingRowRev = index;
-    playNoteArray([...$scope.serie.Matrix[index]].reverse(), () => {
+    const reversed = [...$scope.serie.Matrix[index]].reverse();
+    playNoteArray(reversed, () => {
       $timeout(() => { $scope.playingRowRev = -1; });
+    }, (noteIndex) => {
+      const originalJ = 11 - noteIndex;
+      const key = index + ',' + originalJ;
+      setCellActive(key, true);
+      $timeout(() => setCellActive(key, false), 500);
     });
   };
 
   $scope.playCol = function(index) {
+    stopAndReset();
     $scope.playingCol = index;
     const col = $scope.serie.Matrix.map(row => row[index]);
     playNoteArray(col, () => {
       $timeout(() => { $scope.playingCol = -1; });
+    }, (noteIndex) => {
+      const key = noteIndex + ',' + index;
+      setCellActive(key, true);
+      $timeout(() => setCellActive(key, false), 500);
     });
   };
 
   $scope.playColReverse = function(index) {
+    stopAndReset();
     $scope.playingColRev = index;
     const col = $scope.serie.Matrix.map(row => row[index]).reverse();
     playNoteArray(col, () => {
       $timeout(() => { $scope.playingColRev = -1; });
+    }, (noteIndex) => {
+      const originalI = 11 - noteIndex;
+      const key = originalI + ',' + index;
+      setCellActive(key, true);
+      $timeout(() => setCellActive(key, false), 500);
     });
   };
 
